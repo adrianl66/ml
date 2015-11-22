@@ -2,7 +2,7 @@
 title: "Practical machine learning project"
 author: "adrian lim"
 date: "Friday, November 20, 2015"
-output: html_document
+output: pdf_document
 ---
 
 #Executive Summary
@@ -89,7 +89,7 @@ dim(dfTestCleaned)
 We now build a model using random forests with cross validation and 5 folds. This step was repeated a few times to find the model with the smallest out of sample error by adjusting the modelling parameters.
 To speed up the computation we enable parallel processing using the appropriate libraries
 
-```{r modelling, cache=TRUE}
+```{r modelling}
 library(parallel)
 library(doParallel)
 
