@@ -1,0 +1,140 @@
+---
+title: "Practical machine learning project"
+author: "adrian lim"
+date: "Friday, November 20, 2015"
+output: html_document
+---
+
+#Executive Summary
+In this project, we will use machine learning techniques to model exercise data that consists of data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. The goal is to predict the manner in which the participants did the exercise (the "classe" variable in the training set) using the other variables in the set. The data source is from [Weight Lifting](http://groupware.les.inf.puc-rio.br/har) (see the section on the Weight Lifting Exercise Dataset). 
+
+We utilised the random forest technique to predict the exercise classe. The model we built has an out of sample error around 0.66% which is quite good. Further work can be done by fine tuning the model as well as exploring and comparing other techniques for example boosting etc to further improve the model accuracy.
+
+##Download test and training data and perform exploratory data analysis on the test set
+First lets explore the test dataset to get a feel for the data.    
+```{r}
+library(R.utils)
+library(RCurl)
+library(ggplot2)
+library(dplyr)
+library(knitr)
+library(caret)
+#
+# Down load the data
+#
+trainURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testURL  <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+#setInternet2(use = TRUE)
+#if (!file.exists("./data/train.csv")) {
+#    download.file(trainURL,"./data/train.csv",method='curl')
+#}
+#if (!file.exists("./data/test.csv")) {
+#    download.file(testURL,"./data/test.csv",method='curl')
+#}
+trainRawFile <- read.csv('./data/train.csv', sep=',', stringsAsFactors = FALSE, strip.white = TRUE)
+testRawFile <- read.csv('./data/test.csv', sep=',', stringsAsFactors = FALSE,strip.white = TRUE)
+```
+From inspection, it is clear that there is a lot of missing data in the data set and a fair amount of cleaning is required.
+
+## Create a training and a testing set from the downloaded trainset in a 60:40 ratio
+```{r}
+set.seed(80)
+intrain = createDataPartition(trainRawFile$classe,p=0.6,list=FALSE)
+trainSet = trainRawFile[intrain,]
+testSet = trainRawFile[-intrain,]
+dim(trainSet)
+dim(testSet)
+```
+
+## Clean the data
+We now clean the data in 3 steps:  
+- removing unneccessary variables  
+- remove variables which do not have predictive value  
+- remove variables which have a lot of missing data  
+
+### A) Remove columns that are not related to movement
+The first 7 variables (ID, subject names, timestamp info) can be removed as they are static data and time based information which is not related to what we are trying to predict.  
+```{r}
+trainSet <- trainSet[,-c(1:7)]
+testSet <- testSet[,-c(1:7)]
+```
+
+### B) Remove near to zero variance variables as they do not have predictive value
+We use the nearZeroVar function to remove variables that have either one unique value or variables which have very few unique values relative to the number of samples and where the second most common value is prevalent. These kind of variables have close to zero variance and hence are not good predictors.  
+```{r}
+nzv <- nearZeroVar(trainSet, saveMetrics=TRUE)
+trainSet <- trainSet[,nzv$nzv==FALSE]
+nzv <- nearZeroVar(testSet, saveMetrics=TRUE)
+testSet <- testSet[,nzv$nzv==FALSE]
+
+dim(trainSet)
+dim(testSet)
+```
+
+### C)Remove fields with NAs
+Finally we remove variables with lots of missing data.  
+```{r}
+naNum <- sapply(trainSet, function(x) {sum(is.na(x))})
+clean_cols = names(naNum[naNum==0]) #select column names with no NA data
+dfTrainCleaned = trainSet[, names(trainSet) %in% clean_cols]
+
+# Ensure ony same variables are in the Cleaned Test Set
+dfTestCleaned <- testSet[colnames(dfTrainCleaned)] 
+
+dim(dfTrainCleaned)
+dim(dfTestCleaned)
+```
+
+## Build a prediction model 
+We now build a model using random forests with cross validation and 5 folds. This step was repeated a few times to find the model with the smallest out of sample error by adjusting the modelling parameters.
+To speed up the computation we enable parallel processing using the appropriate libraries
+
+```{r modelling, cache=TRUE}
+library(parallel)
+library(doParallel)
+
+clust <- makeCluster(detectCores() - 1)
+registerDoParallel(clust)
+ctrl <- trainControl(classProbs=TRUE, savePredictions=TRUE, allowParallel=TRUE, method = "cv", number = 5)
+model <- train(classe~., method = "rf", trControl = ctrl,data=dfTrainCleaned)   
+stopCluster(clust)
+```
+
+## Evaluate the Model on the training dataset (40% of data set aside originally)
+We now evaluate the model on the data set.  
+```{r predictions}
+model
+aaa <- mean(predict(model, dfTestCleaned) == dfTestCleaned$classe) * 100
+oos <- 100 - aaa # Out of Sample Error Rate
+```
+The out of sample error rate is `r oos`%.    
+The confusion matrix for the model is as shown below.
+
+```{r}
+predict1 <- predict(model, dfTestCleaned)
+confusionMatrix(predict1, dfTestCleaned$classe)
+save(model,file="./data/model.RData")
+```
+
+## Run the Model on the test dataset
+We now run the model on the test dataset.  
+```{r}
+load(file="./data/model.RData",verbose=TRUE)
+predict2 <- predict(model, testRawFile)
+```
+
+## Submit Results of the test dataset
+Finally we write the result files for the 20 test cases for submission.  
+```{r}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("./result/problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+pml_write_files(predict2)
+```
+
+# Conclusion
+We have build a model using the random forest technique to predict the exercise classe. The model's out of sample error is around 0.66% which is quite good. Further work can be done by tuning the model as well as comparing other techniques for example boosting etc.
